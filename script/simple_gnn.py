@@ -15,8 +15,8 @@ class GNNRegressor(nn.Module):
         self.out = torch.nn.Linear(hidden_dim, out_dim)
 
     def forward(self, x, edge_index, batch):
-        x = F.relu(self.conv1(x, edge_index))
-        x = F.relu(self.conv2(x, edge_index))
+        x = F.leaky_relu(self.conv1(x, edge_index))
+        x = F.leaky_relu(self.conv2(x, edge_index))
         x = global_mean_pool(x, batch)
         return self.out(x)
     

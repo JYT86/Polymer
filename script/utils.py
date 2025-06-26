@@ -48,10 +48,17 @@ def mol_to_graph(smiles: str, y: float) -> Data:
 
 
 class SMILESDataset(Dataset):
-    def __init__(self, df: DataFrame, property: str = 'FFV'):
+    def __init__(self, df: DataFrame, property: str = 'FFV', normalize=False):
         super().__init__()
         self.smiles = df[df[property].notna()]['SMILES'].tolist()
         self.y = df[df[property].notna()][property].tolist()
+        self.normalize = normalize
+
+        # 归一化处理
+        if normalize:
+            self.y_min = min(self.y)
+            self.y_max = max(self.y)
+            self.y = [(v - self.y_min) / (self.y_max - self.y_min) for v in self.y]
     
     def __len__(self):
         return len(self.y)
@@ -59,6 +66,9 @@ class SMILESDataset(Dataset):
     def __getitem__(self, idx):
         graph_data = mol_to_graph(self.smiles[idx], self.y[idx])
         return graph_data
+    
+    def unscale(self, y_scaled_tensor):
+        return y_scaled_tensor * (self.y_max - self.y_min) + self.y_min
         
 
 #################################################################
