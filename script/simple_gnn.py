@@ -12,7 +12,12 @@ class GNNRegressor(nn.Module):
         super().__init__()
         self.conv1 = GCNConv(in_dim, hidden_dim)
         self.conv2 = GCNConv(hidden_dim, hidden_dim)
-        self.out = torch.nn.Linear(hidden_dim, out_dim)
+        # self.out = torch.nn.Linear(hidden_dim, out_dim)
+        self.out = torch.nn.Sequential(
+            nn.Linear(hidden_dim, int(hidden_dim/2)),
+            nn.LeakyReLU(),
+            nn.Linear(int(hidden_dim/2), out_dim)
+        )
 
     def forward(self, x, edge_index, batch):
         x = F.leaky_relu(self.conv1(x, edge_index))

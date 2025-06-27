@@ -5,7 +5,7 @@ from torch.utils.data import Subset
 
 from torch_geometric.loader import DataLoader
 
-from utils import SMILESDataset, scaling_error
+from utils import SMILESDataset, scaling_error, EarlyStop
 from simple_gnn import GNNRegressor
 
 from sklearn.model_selection import train_test_split
@@ -16,7 +16,7 @@ from matplotlib import pyplot as plt
 if __name__ == "__main__":
 
     
-    property = 'FFV'
+    property = 'Tg'
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     df = pd.read_csv('../data/train.csv')
@@ -28,11 +28,13 @@ if __name__ == "__main__":
     train_loader = DataLoader(train_set, 32, True, )
     val_loader = DataLoader(val_set, 32, True, )
 
-    model = GNNRegressor(7, 64, 1).to(device)
+    model = GNNRegressor(7, 1024, 1).to(device)
     loss_fn = MSELoss()
     optimizer = Adam(model.parameters(), lr=1e-4)
+    earlystop = EarlyStop(50, float(1e-4))
+
     best = float('inf')
-    for i in range(10):
+    for i in range(1000):
         total_loss = 0
         for batch in train_loader:
             batch = batch.cuda()
@@ -58,21 +60,23 @@ if __name__ == "__main__":
                     preds.extend(output.detach().cpu().view(-1).tolist())
                     trues.extend(batch.y.detach().cpu().view(-1).tolist())
             
-            plt.figure()
-            plt.plot(trues, preds, 'o', alpha=0.6)
-            plt.plot([min(trues), max(trues)],[min(trues), max(trues)], 'r--')
+
             error_value = scaling_error(pd.DataFrame({'id': range(len(trues)), property: trues}), pd.DataFrame({'id': range(len(preds)), property: preds}), property)
             if error_value < best:
                 best = error_value
                 torch.save(model.state_dict(), f'../checkpoints/best_model_{property}.pt')
                 print(f"Saved new best model at epoch {i+1} with score {error_value:.4f}")
-            plt.title(f"Epoch {i+1}, Score:{error_value:.4f}")
-            plt.xlabel('True')
-            plt.xlabel('Pred')
-            plt.savefig(f'../graphs/gnn/epoch_{i}_{property}_result.png')
-            plt.close()
 
-
-        
-
+                plt.figure()
+                plt.plot(trues, preds, 'o', alpha=0.6)
+                plt.plot([min(trues), max(trues)],[min(trues), max(trues)], 'r--')
+                plt.title(f"Epoch {i+1}, Score:{error_value:.4f}")
+                plt.xlabel('True')
+                plt.xlabel('Pred')
+                plt.savefig(f'../graphs/gnn/epoch_{property}_result.png')
+                plt.close()
+            
+            if earlystop.check(error_value):
+                print(f'Training early stop due to no improvement for {earlystop.patience} epochs')
+                break
 

@@ -18,14 +18,14 @@ def mol_to_graph(smiles: str, y: float) -> Data:
     atom_features = []
     for atom in mol.GetAtoms():
             atom_features.append([
-            atom.GetAtomicNum(),                      # 原子序号（C=6, O=8...）
-            atom.GetTotalDegree(),                    # 键连数
-            atom.GetFormalCharge(),                   # 形式电荷
-            atom.GetTotalNumHs(),                     # 氢原子数（包括显式/隐式）
-            int(atom.GetIsAromatic()),                # 是否为芳香性
-            int(atom.GetHybridization()),             # 杂化类型（SP=0, SP2=1, ...）
-            int(atom.IsInRing()),                     # 是否在环中    
-        ])
+                atom.GetAtomicNum(),                      # 原子序号（C=6, O=8...）
+                atom.GetTotalDegree(),                    # 键连数
+                atom.GetFormalCharge(),                   # 形式电荷
+                atom.GetTotalNumHs(),                     # 氢原子数（包括显式/隐式）
+                int(atom.GetIsAromatic()),                # 是否为芳香性
+                int(atom.GetHybridization()),             # 杂化类型（SP=0, SP2=1, ...）
+                int(atom.IsInRing()),                     # 是否在环中    
+            ])
 
     edge_index = []
     edge_attr = []
@@ -69,6 +69,26 @@ class SMILESDataset(Dataset):
     
     def unscale(self, y_scaled_tensor):
         return y_scaled_tensor * (self.y_max - self.y_min) + self.y_min
+
+class EarlyStop:
+    def __init__(self, patience: int, tolerance: float = 1e-5):
+        self.patience = patience
+        self.tolerance = tolerance
+        self.best_score = None       # 保存目前最好的 score
+        self.counter = 0             # 记录连续“没进步”的次数
+
+    def check(self, score: float):
+        if self.best_score is None:
+            self.best_score = score
+            return False
+
+        if self.best_score - score > self.tolerance:
+            self.best_score = score
+            self.counter = 0
+        else:
+            self.counter += 1
+
+        return self.counter >= self.patience
         
 
 #################################################################
