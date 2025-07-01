@@ -7,9 +7,13 @@ from pandas import DataFrame
 
 import rdkit
 from rdkit import Chem
+from rdkit.Chem import Descriptors
 
 import numpy as np
 import pandas as pd
+
+from tqdm import tqdm
+import math
 
 
 def mol_to_graph(smiles: str, y: float) -> Data:
@@ -46,14 +50,15 @@ def mol_to_graph(smiles: str, y: float) -> Data:
 
     return data
 
-
+exclusion_list = ['MaxPartialCharge', 'MinPartialCharge', 'MaxAbsPartialCharge', 'MinAbsPartialCharge', 'BCUT2D_MWHI', 'BCUT2D_MWLOW', 'BCUT2D_CHGHI', 'BCUT2D_CHGLO', 'BCUT2D_LOGPHI','BCUT2D_LOGPLOW','BCUT2D_MRHI','BCUT2D_MRLOW', 'Ipc']
 class SMILESDataset(Dataset):
-    def __init__(self, df: DataFrame, property: str = 'FFV', normalize=False):
+    def __init__(self, df: DataFrame, property: str='FFV', normalize: bool=False, return_feature :bool=True):
         super().__init__()
         self.smiles = df[df[property].notna()]['SMILES'].tolist()
         self.y = df[df[property].notna()][property].tolist()
         self.normalize = normalize
 
+        self.return_feature = return_feature
         # 归一化处理
         if normalize:
             self.y_min = min(self.y)
@@ -65,6 +70,19 @@ class SMILESDataset(Dataset):
     
     def __getitem__(self, idx):
         graph_data = mol_to_graph(self.smiles[idx], self.y[idx])
+        mol = Chem.MolFromSmiles(self.smiles[idx])
+        if self.return_feature:
+            graph_feature = []
+            for name, func in Descriptors.descList:
+                if name in exclusion_list:
+                    continue
+                try:
+                    feature = func(mol)
+                    graph_feature.append(feature)
+                except:
+                    graph_feature.append(0)
+            graph_feature = torch.tensor(graph_feature, dtype=torch.float)
+            return graph_data, graph_feature
         return graph_data
     
     def unscale(self, y_scaled_tensor):
@@ -159,14 +177,55 @@ def score(solution: pd.DataFrame, submission: pd.DataFrame, row_id_column_name: 
 #################################################################
 
 
+def find_unstable_descriptors(smiles_list):
+    descriptor_stats = {}  # name -> [num_valid, total]
+
+    for name, func in Descriptors.descList:
+        descriptor_stats[name] = [0, 0]
+
+    for smi in tqdm(smiles_list):
+        mol = Chem.MolFromSmiles(smi)
+        if mol is None:
+            continue
+        for name, func in Descriptors.descList:
+            try:
+                val = func(mol)
+                descriptor_stats[name][1] += 1
+
+                # 只接受合法标量（float/int），且非 NaN/Inf
+                if isinstance(val, (int, float)):
+                    if not (math.isnan(val) or math.isinf(val)):
+                        descriptor_stats[name][0] += 1
+                else:
+                    # 非标量视为无效（比如列表、字符串、None）
+                    pass
+            except Exception:
+                descriptor_stats[name][1] += 0  # already counted
+
+    unsupported = []
+    for name, (valid, total) in descriptor_stats.items():
+        if valid < total:
+            unsupported.append(name)
+
+    return unsupported
+
+
 if __name__ == '__main__':
     import pandas as pd
     from torch_geometric.loader import DataLoader
 
     df = pd.read_csv('../data/train.csv')
+    test_df = pd.read_csv('../data/test.csv')
     dataset = SMILESDataset(df, 'FFV')
-    dataloader = DataLoader(dataset, 32, True, )
-    for batch in dataloader:
+    dataloader = DataLoader(dataset, 32, False, )
+    for i, (batch, gfeature) in enumerate(dataloader):
         print(batch.x.shape)
         print(batch.edge_attr)
         print(batch.batch)
+        print(gfeature)
+        if torch.isnan(gfeature).any().item() or torch.isinf(gfeature).any().item():
+            print(i)
+            print('nan', torch.isnan(gfeature).any().item())
+            print('inf', torch.isinf(gfeature).any().item())
+    # print(find_unstable_descriptors(df['SMILES'].tolist()))
+    # print(find_unstable_descriptors(test_df['SMILES'].tolist()))
