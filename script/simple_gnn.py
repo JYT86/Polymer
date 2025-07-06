@@ -1,5 +1,5 @@
 import torch
-from torch_geometric.nn import GCNConv, global_mean_pool, GINEConv, GATConv
+from torch_geometric.nn import GCNConv, global_mean_pool, GINEConv, GATConv, global_max_pool
 from torch import nn
 from torch.nn import functional as F
 import pandas as pd
@@ -49,7 +49,7 @@ class GNNFusion(nn.Module):
         x = F.leaky_relu(self.conv1(x, edge_index))
         x = F.leaky_relu(self.conv2(x, edge_index))
         x = F.leaky_relu(self.conv3(x, edge_index))
-        x = global_mean_pool(x, batch)
+        x = global_max_pool(x, batch)
 
         alpha = torch.sigmoid(self.alpha_param)
         beta = torch.sigmoid(self.beta_param)
