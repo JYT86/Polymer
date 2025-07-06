@@ -1,6 +1,3 @@
-
-
-
 import torch
 from torch_geometric.data import Data, Dataset
 from pandas import DataFrame
@@ -15,50 +12,71 @@ import pandas as pd
 from tqdm import tqdm
 import math
 
+import torch
+from transformers import BertTokenizer, BertModel
+
+# 加载 ChemicalBERT
+tokenizer = BertTokenizer.from_pretrained('seyonec/ChemBERTa-zinc-base-v1')
+chembert_model = BertModel.from_pretrained('seyonec/ChemBERTa-zinc-base-v1')
+
+def smiles_to_chembert_embedding(smiles: str):
+    # 将 SMILES 编码为输入 tokens
+    inputs = tokenizer(smiles, return_tensors='pt', padding=True, truncation=True)
+    with torch.no_grad():
+        # 获取分子嵌入
+        outputs = chembert_model(**inputs)
+        # 取出 [CLS] token 对应的嵌入
+        embedding = outputs.last_hidden_state[:, 0, :]
+    return embedding
 
 def mol_to_graph(smiles: str, y: float) -> Data:
     mol = Chem.MolFromSmiles(smiles)
     
     atom_features = []
     for atom in mol.GetAtoms():
-            atom_features.append([
-                atom.GetAtomicNum(),                      # 原子序号（C=6, O=8...）
-                atom.GetTotalDegree(),                    # 键连数
-                atom.GetFormalCharge(),                   # 形式电荷
-                atom.GetTotalNumHs(),                     # 氢原子数（包括显式/隐式）
-                int(atom.GetIsAromatic()),                # 是否为芳香性
-                int(atom.GetHybridization()),             # 杂化类型（SP=0, SP2=1, ...）
-                int(atom.IsInRing()),                     # 是否在环中    
-            ])
+        atom_features.append([
+            atom.GetAtomicNum(),  # 原子序号（C=6, O=8...）
+            atom.GetTotalDegree(),  # 键连数
+            atom.GetFormalCharge(),  # 形式电荷
+            atom.GetTotalNumHs(),  # 氢原子数
+            int(atom.GetIsAromatic()),  # 是否芳香
+            int(atom.GetHybridization()),  # 杂化类型
+            int(atom.IsInRing()),  # 是否在环中
+        ])
 
     edge_index = []
     edge_attr = []
     for bond in mol.GetBonds():
         i = bond.GetBeginAtomIdx()
         j = bond.GetEndAtomIdx()
-        bond_type = bond.GetBondTypeAsDouble() # 键型
+        bond_type = bond.GetBondTypeAsDouble()  # 键型
 
         edge_index += [[i, j], [j, i]]
         edge_attr += [[bond_type], [bond_type]]
+
+    # 使用 ChemicalBERT 嵌入 SMILES
+    smiles_embedding = smiles_to_chembert_embedding(smiles)
 
     data = Data(
         x=torch.tensor(atom_features, dtype=torch.float),
         edge_index=torch.tensor(edge_index, dtype=torch.long).t().contiguous(),
         edge_attr=torch.tensor(edge_attr, dtype=torch.float),
-        y=torch.tensor(y, dtype=torch.float)
+        y=torch.tensor(y, dtype=torch.float),
+        smiles_embedding=smiles_embedding  # 添加 ChemicalBERT 嵌入
     )
 
     return data
 
+
 exclusion_list = ['MaxPartialCharge', 'MinPartialCharge', 'MaxAbsPartialCharge', 'MinAbsPartialCharge', 'BCUT2D_MWHI', 'BCUT2D_MWLOW', 'BCUT2D_CHGHI', 'BCUT2D_CHGLO', 'BCUT2D_LOGPHI','BCUT2D_LOGPLOW','BCUT2D_MRHI','BCUT2D_MRLOW', 'Ipc']
 class SMILESDataset(Dataset):
-    def __init__(self, df: DataFrame, property: str='FFV', normalize: bool=False, return_feature :bool=False):
+    def __init__(self, df: DataFrame, property: str='FFV', normalize: bool=False, return_feature: bool=False):
         super().__init__()
         self.smiles = df[df[property].notna()]['SMILES'].tolist()
         self.y = df[df[property].notna()][property].tolist()
         self.normalize = normalize
-
         self.return_feature = return_feature
+
         # 归一化处理
         if normalize:
             self.y_min = min(self.y)
@@ -82,7 +100,8 @@ class SMILESDataset(Dataset):
                 except:
                     graph_feature.append(0)
             graph_feature = torch.tensor(graph_feature, dtype=torch.float)
-            return graph_data, graph_feature
+            # 将 ChemicalBERT 嵌入一起返回
+            return graph_data, graph_feature, graph_data.smiles_embedding
         return graph_data
     
     def unscale(self, y_scaled_tensor):
@@ -174,8 +193,6 @@ def score(solution: pd.DataFrame, submission: pd.DataFrame, row_id_column_name: 
         raise RuntimeError('No labels')
     return float(np.average(property_maes, weights=property_weights))
 
-#################################################################
-
 
 def find_unstable_descriptors(smiles_list):
     descriptor_stats = {}  # name -> [num_valid, total]
@@ -227,5 +244,3 @@ if __name__ == '__main__':
             print(i)
             print('nan', torch.isnan(gfeature).any().item())
             print('inf', torch.isinf(gfeature).any().item())
-    # print(find_unstable_descriptors(df['SMILES'].tolist()))
-    # print(find_unstable_descriptors(test_df['SMILES'].tolist()))
