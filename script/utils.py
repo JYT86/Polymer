@@ -52,7 +52,7 @@ def mol_to_graph(smiles: str, y: float) -> Data:
 
 exclusion_list = ['MaxPartialCharge', 'MinPartialCharge', 'MaxAbsPartialCharge', 'MinAbsPartialCharge', 'BCUT2D_MWHI', 'BCUT2D_MWLOW', 'BCUT2D_CHGHI', 'BCUT2D_CHGLO', 'BCUT2D_LOGPHI','BCUT2D_LOGPLOW','BCUT2D_MRHI','BCUT2D_MRLOW', 'Ipc']
 class SMILESDataset(Dataset):
-    def __init__(self, df: DataFrame, property: str='FFV', normalize: bool=False, return_feature :bool=True):
+    def __init__(self, df: DataFrame, property: str='FFV', normalize: bool=False, return_feature :bool=False):
         super().__init__()
         self.smiles = df[df[property].notna()]['SMILES'].tolist()
         self.y = df[df[property].notna()][property].tolist()

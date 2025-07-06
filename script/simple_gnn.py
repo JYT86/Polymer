@@ -1,7 +1,7 @@
 
 
 import torch
-from torch_geometric.nn import GCNConv, global_mean_pool
+from torch_geometric.nn import GCNConv, global_mean_pool, GINEConv, GATConv
 from torch import nn
 from torch.nn import functional as F
 
@@ -30,6 +30,7 @@ class GNNFusion(nn.Module):
         super().__init__()
         self.conv1 = GCNConv(in_dim, hidden_dim)
         self.conv2 = GCNConv(hidden_dim, hidden_dim)
+        self.conv3 = GCNConv(hidden_dim, hidden_dim)
         # self.out = torch.nn.Linear(hidden_dim, out_dim)
         
         self.gnn_proj = nn.Linear(hidden_dim, hidden_dim)
@@ -41,24 +42,25 @@ class GNNFusion(nn.Module):
             nn.LeakyReLU(),
             nn.Linear(hidden_dim, out_dim)
         )
+        self.alpha_param = nn.Parameter(torch.tensor(0.5))
 
     def forward(self, x, edge_index, batch, graph_feature):
 
-        # print("Graph feature NaN:", torch.isnan(graph_feature).any().item())
-        # print("Graph feature Inf:", torch.isinf(graph_feature).any().item())
-
-        # print()
-
-        # print("Node feature NaN:", torch.isnan(x).any().item())
-        # print("Node feature Inf:", torch.isinf(x).any().item())
         x = F.leaky_relu(self.conv1(x, edge_index))
         x = F.leaky_relu(self.conv2(x, edge_index))
+        x = F.leaky_relu(self.conv3(x, edge_index))
         x = global_mean_pool(x, batch)
 
+        alpha = torch.sigmoid(self.alpha_param)
         gnn_feat = self.gnn_proj(x)
         graph_feat = self.graph_feature_proj(graph_feature)
-    
-        fused = torch.cat([gnn_feat, graph_feat], dim=1)
+
+        # print('gnn_feat', gnn_feat.cpu().detach().numpy())
+        # print('graph_feat', graph_feat.cpu().detach().numpy())
+        gnn_feat = F.layer_norm(gnn_feat, gnn_feat.shape[1:])
+        graph_feat = F.layer_norm(graph_feat, graph_feat.shape[1:])
+
+        fused = torch.cat([gnn_feat * alpha, graph_feat * (1-alpha)], dim=1)
         return self.fusion(fused)
 
 if __name__ == "__main__":
