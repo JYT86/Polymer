@@ -6,13 +6,15 @@ from torch.utils.data import Subset
 
 from torch_geometric.loader import DataLoader
 
-from utils import SMILESDataset, scaling_error, EarlyStop
+from utils import SMILESDataset, scaling_error, EarlyStop, exclusion_list
 from simple_gnn import GNNRegressor, GNNFusion
 
 from sklearn.model_selection import train_test_split
 
 import pandas as pd
 from matplotlib import pyplot as plt
+
+from rdkit.Chem import Descriptors
 
 
 if __name__ == '__main__':
@@ -37,7 +39,7 @@ if __name__ == '__main__':
         val_loader = DataLoader(val_set, 32, True, )
         
         # model = GNNRegressor(7, 1024, 1).to(device)
-        model = GNNFusion(7, 1024, 210-13, 1).to(device)
+        model = GNNFusion(7, 1024, len([name for name, func in Descriptors.descList if name not in exclusion_list]), 1).to(device)
         loss_fn = MSELoss()
         optimizer = Adam(model.parameters(), lr=1e-4)
         earlystop = EarlyStop(50, float(1e-4))
